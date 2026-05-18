@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -21,7 +22,7 @@ public class ParkingManagerImpl implements ParkingManager {
     private final AtomicInteger availableSlots;
     private final ReentrantLock lock;
     private final Condition slotAvailable;
-    private volatile boolean isRunning;
+    private final AtomicBoolean isRunning;
 
     public ParkingManagerImpl(int totalSlots) {
         this.totalSlots = totalSlots;
@@ -29,7 +30,7 @@ public class ParkingManagerImpl implements ParkingManager {
         this.availableSlots = new AtomicInteger(totalSlots);
         this.lock = new ReentrantLock(true);
         this.slotAvailable = lock.newCondition();
-        this.isRunning = true;
+        this.isRunning = new AtomicBoolean(true);
 
         for (int i = 0; i < totalSlots; i++) {
             slots[i] = new ParkingSlot(i + 1);
@@ -40,7 +41,7 @@ public class ParkingManagerImpl implements ParkingManager {
 
     @Override
     public void parkCar(Car car) throws InterruptedException, ParkingException {
-        if (!isRunning) {
+        if (!isRunning.get()) {
             throw new ParkingException("Parking manager is shut down");
         }
 
@@ -48,12 +49,16 @@ public class ParkingManagerImpl implements ParkingManager {
 
         lock.lock();
         try {
-            while (availableSlots.get() == 0) {
+            while (availableSlots.get() == 0 && isRunning.get()) {
                 logger.info("No available slots. Car {} is waiting", car.getId());
                 if (!slotAvailable.await(5, TimeUnit.SECONDS)) {
                     logger.error("Car {} timed out while waiting for a slot", car.getId());
                     throw new ParkingException("Timeout waiting for parking slot");
                 }
+            }
+
+            if (!isRunning.get()) {
+                throw new ParkingException("Parking manager is shut down during waiting");
             }
 
             int slotIndex = findFreeSlot();
@@ -111,9 +116,9 @@ public class ParkingManagerImpl implements ParkingManager {
 
     @Override
     public void shutdown() {
-        isRunning = false;
         lock.lock();
         try {
+            isRunning.set(false);
             slotAvailable.signalAll();
             logger.info("ParkingManager shutdown complete");
         } finally {
