@@ -24,6 +24,7 @@ public class CarTask implements Callable<Boolean> {
     @Override
     public Boolean call() {
         logger.info("Car {} started execution", car.getId());
+        boolean isParked = false;
 
         try {
             car.enter();
@@ -37,17 +38,16 @@ public class CarTask implements Callable<Boolean> {
             parkingManager.leaveParking(car);
 
             logger.info("Car {} successfully completed parking", car.getId());
-            return true;
+            isParked = true;
 
         } catch (ParkingException e) {
             logger.error("Car {} failed to park: {}", car.getId(), e.getMessage());
             car.leave();
-            return false;
 
         } catch (InterruptedException e) {
             logger.error("Car {} was interrupted: {}", car.getId(), e.getMessage());
             Thread.currentThread().interrupt();
-            return false;
         }
+        return isParked;
     }
 }
